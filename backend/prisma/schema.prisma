@@ -6,3 +6,74 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum Role {
+  USER
+  AGENT
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum Status {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+
+  ticketsCreated  Ticket[]  @relation("TicketCreator")
+  ticketsAssigned Ticket[]  @relation("TicketAssignee")
+  comments        Comment[]
+}
+
+model Ticket {
+  id          String    @id @default(uuid())
+  title       String
+  description String
+  priority    Priority  @default(MEDIUM)
+  status      Status    @default(OPEN)
+
+  creator     User      @relation("TicketCreator", fields: [creatorId], references: [id])
+  creatorId   String
+
+  assignee    User?     @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  assigneeId  String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  firstResponseAt DateTime?
+  slaDeadline     DateTime?
+  resolvedAt      DateTime?
+
+  comments    Comment[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([assigneeId])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  ticket    Ticket   @relation(fields: [ticketId], references: [id])
+  ticketId  String
+
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  String
+}
