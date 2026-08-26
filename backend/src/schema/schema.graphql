@@ -1,0 +1,82 @@
+enum Role {
+  USER
+  AGENT
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum Status {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SlaState {
+  ON_TRACK
+  AT_RISK
+  BREACHED
+}
+
+type User {
+  id: ID!
+  email: String!
+  name: String!
+  role: Role!
+}
+
+type Comment {
+  id: ID!
+  content: String!
+  createdAt: String!
+  author: User!
+}
+
+type Ticket {
+  id: ID!
+  title: String!
+  description: String!
+  priority: Priority!
+  status: Status!
+  creator: User!
+  assignee: User
+  createdAt: String!
+  updatedAt: String!
+  firstResponseAt: String
+  slaDeadline: String
+  resolvedAt: String
+  slaState: SlaState!
+  comments: [Comment!]!
+}
+
+type TicketConnection {
+  tickets: [Ticket!]!
+  totalCount: Int!
+  hasNextPage: Boolean!
+}
+
+type Query {
+  me: User
+  ticket(id: ID!): Ticket
+  tickets(status: Status, priority: Priority, page: Int, pageSize: Int): TicketConnection!
+}
+
+type Mutation {
+  signup(email: String!, password: String!, name: String!): AuthPayload!
+  login(email: String!, password: String!): AuthPayload!
+
+  createTicket(title: String!, description: String!, priority: Priority!): Ticket!
+  assignTicket(ticketId: ID!, agentId: ID!): Ticket!
+  updateTicketStatus(ticketId: ID!, status: Status!): Ticket!
+  addComment(ticketId: ID!, content: String!): Comment!
+}
+
+type AuthPayload {
+  token: String!
+  user: User!
+}
