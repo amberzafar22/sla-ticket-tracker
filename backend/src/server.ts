@@ -26,6 +26,27 @@ interface LoginArgs {
   password: string;
 }
 
+interface CreateTicketArgs {
+  title: string;
+  description: string;
+  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+}
+
+interface AssignTicketArgs {
+  ticketId: string;
+  agentId: string;
+}
+
+interface UpdateTicketStatusArgs {
+  ticketId: string;
+  status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+}
+
+interface AddCommentArgs {
+  ticketId: string;
+  content: string;
+}
+
 function requireAuth(ctx: GraphQLContext): { userId: string; role: "USER" | "AGENT" } {
   if (!ctx.userId || !ctx.role) {
     throw new Error("Not authenticated. Please log in.");
@@ -86,22 +107,146 @@ const resolvers = {
       const token = signToken({ userId: user.id, role: user.role });
       return { token, user };
     },
+        createTicket: async (
+      _parent: unknown,
+      args: CreateTicketArgs,
+      ctx: GraphQLContext
+    ) => {
+      const { userId } = requireAuth(ctx);
 
-    createTicket: (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
-      requireAuth(ctx);
-      throw new Error("Not implemented yet");
+      if (!args.title || args.title.trim().length === 0) {
+        throw new Error("Title is required.");
+      }
+      if (!args.description || args.description.trim().length === 0) {
+        throw new Error("Description is required.");
+      }
+
+      const ticket = await prisma.ticket.create({
+        data: {
+          title: args.title.trim(),
+          description: args.description.trim(),
+          priority: args.priority,
+          status: "OPEN",
+          creator: { connect: { id: userId } },
+        },
+        include: {
+          creator: true,
+          assignee: true,
+          comments: { include: { author: true } },
+        },
+      });
+
+      return ticket;
     },
-    assignTicket: (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
-      requireAuth(ctx);
-      throw new Error("Not implemented yet");
+
+    assignTicket: async (
+      _parent: unknown,
+      args: AssignTicketArgs,
+      ctx: GraphQLContext
+    ) => {
+      const { role } = requireAuth(ctx);
+
+      if (role !== "AGENT") {
+        throw new Error("Only agents can assign tickets.");
+      }
+
+      const ticket = await prisma.ticket.findUnique({ where: { id: args.ticketId } });
+      if (!ticket) {
+        throw new Error("Ticket not found.");
+      }
+
+      const agent = await prisma.user.findUnique({ where: { id: args.agentId } });
+      if (!agent || agent.role !== "AGENT") {
+        throw new Error("Assignee must be a valid agent.");
+      }
+
+      const updated = await prisma.ticket.update({
+        where: { id: args.ticketId },
+        data: { assignee: { connect: { id: agent.id } } },
+        include: {
+          creator: true,
+          assignee: true,
+          comments: { include: { author: true } },
+        },
+      });
+
+      return updated;
     },
-    updateTicketStatus: (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
-      requireAuth(ctx);
-      throw new Error("Not implemented yet");
+
+    updateTicketStatus: async (
+      _parent: unknown,
+      args: UpdateTicketStatusArgs,
+      ctx: GraphQLContext
+    ) => {
+      const { role } = requireAuth(ctx);
+
+      if (role !== "AGENT") {
+        throw new Error("Only agents can update ticket status.");
+      }
+
+      const ticket = await prisma.ticket.findUnique({ where: { id: args.ticketId } });
+      if (!ticket) {
+        throw new Error("Ticket not found.");
+      }
+
+      const updated = await prisma.ticket.update({
+        where: { id: args.ticketId },
+        data: {
+          status: args.status,
+          resolvedAt: args.status === "RESOLVED" ? new Date() : null,
+        },
+        include: {
+          creator: true,
+          assignee: true,
+          comments: { include: { author: true } },
+        },
+      });
+
+      return updated;
     },
-    addComment: (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
-      requireAuth(ctx);
-      throw new Error("Not implemented yet");
+
+    addComment: async (
+      _parent: unknown,
+      args: AddCommentArgs,
+      ctx: GraphQLContext
+    ) => {
+      const { userId, role } = requireAuth(ctx);
+
+      if (!args.content || args.content.trim().length === 0) {
+        throw new Error("Comment content is required.");
+      }
+
+      const ticket = await prisma.ticket.findUnique({ where: { id: args.ticketId } });
+      if (!ticket) {
+        throw new Error("Ticket not found.");
+      }
+
+      const comment = await prisma.comment.create({
+        data: {
+          content: args.content.trim(),
+          ticket: { connect: { id: args.ticketId } },
+          author: { connect: { id: userId } },
+        },
+        include: { author: true },
+      });
+
+      if (role === "AGENT" && !ticket.firstResponseAt) {
+        await prisma.ticket.update({
+          where: { id: args.ticketId },
+          data: { firstResponseAt: new Date() },
+        });
+      }
+
+      return comment;
+    },
+  },
+
+  Ticket: {
+    slaState: (parent: { slaDeadline: Date | null; status: string }) => {
+      // Placeholder until Milestone 6 implements real business-hours SLA logic
+      if (parent.status === "RESOLVED" || parent.status === "CLOSED") return "ON_TRACK";
+      if (!parent.slaDeadline) return "ON_TRACK";
+      return new Date() > parent.slaDeadline ? "BREACHED" : "ON_TRACK";
     },
   },
 };
